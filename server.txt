@@ -1,0 +1,208 @@
+#include <iostream>
+#include <string>
+#include <thread>
+#include <vector>
+#include <filesystem>
+#include <fstream>
+#ifdef _WIN32
+#include <winsock2.h>
+#pragma comment(lib, "Ws2_32.lib")
+#else
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
+#include <dirent.h>
+#endif
+#include <cstring>
+
+const std::string FILE_DIR = "server_files";
+const std::string USERNAME = "user";
+const std::string PASSWORD = "pass";
+
+void send_response(int client_sock, const std::string& response) {
+    std::string msg = response + "\n";
+    send(client_sock, msg.c_str(), msg.size(), 0);
+}
+
+bool authenticate(int client_sock, const std::string& command) {
+    std::string expected = "AUTH " + USERNAME + " " + PASSWORD;
+    if (command != expected) {
+        send_response(client_sock, "ERROR Invalid credentials");
+        return false;
+    }
+    send_response(client_sock, "OK Authenticated");
+    return true;
+}
+
+void handle_upload(int client_sock, const std::string& filename) {
+    // Receive file size
+    uint32_t file_size;
+    if (recv(client_sock, reinterpret_cast<char*>(&file_size), sizeof(file_size), 0) != sizeof(file_size)) {
+        send_response(client_sock, "ERROR Failed to receive file size");
+        return;
+    }
+    file_size = ntohl(file_size);
+
+    // Receive file data
+    std::ofstream outfile(FILE_DIR + "/" + filename, std::ios::binary);
+    if (!outfile) {
+        send_response(client_sock, "ERROR Cannot create file");
+        return;
+    }
+
+    char buffer[1024];
+    size_t total_received = 0;
+    while (total_received < file_size) {
+        int bytes_received = recv(client_sock, buffer, std::min(sizeof(buffer), file_size - total_received), 0);
+        if (bytes_received <= 0) {
+            send_response(client_sock, "ERROR File transfer interrupted");
+            outfile.close();
+            std::filesystem::remove(FILE_DIR + "/" + filename);
+            return;
+        }
+        outfile.write(buffer, bytes_received);
+        total_received += bytes_received;
+    }
+    outfile.close();
+    send_response(client_sock, "OK File uploaded successfully");
+}
+
+void handle_download(int client_sock, const std::string& filename) {
+    std::ifstream infile(FILE_DIR + "/" + filename, std::ios::binary | std::ios::ate);
+    if (!infile) {
+        send_response(client_sock, "ERROR File not found");
+        return;
+    }
+
+    // Send file size
+    uint32_t file_size = infile.tellg();
+    uint32_t file_size_net = htonl(file_size);
+    infile.seekg(0);
+    if (send(client_sock, reinterpret_cast<char*>(&file_size_net), sizeof(file_size_net), 0) != sizeof(file_size_net)) {
+        send_response(client_sock, "ERROR Failed to send file size");
+        return;
+    }
+
+    // Send file data
+    char buffer[1024];
+    while (infile) {
+        infile.read(buffer, sizeof(buffer));
+        size_t bytes_read = infile.gcount();
+        if (bytes_read > 0) {
+            if (send(client_sock, buffer, bytes_read, 0) <= 0) {
+                send_response(client_sock, "ERROR File transfer interrupted");
+                return;
+            }
+        }
+    }
+    send_response(client_sock, "OK File downloaded successfully");
+}
+
+void handle_list(int client_sock) {
+    std::string file_list = "OK Files:\n";
+    for (const auto& entry : std::filesystem::directory_iterator(FILE_DIR)) {
+        if (entry.is_regular_file()) {
+            file_list += entry.path().filename().string() + "\n";
+        }
+    }
+    send(client_sock, file_list.c_str(), file_list.size(), 0);
+}
+
+void handle_client(int client_sock) {
+    char buffer[1024];
+    bool authenticated = false;
+
+    while (true) {
+        int bytes_received = recv(client_sock, buffer, sizeof(buffer) - 1, 0);
+        if (bytes_received <= 0) {
+            break;
+        }
+        buffer[bytes_received] = '\0';
+        std::string command(buffer);
+        command.erase(command.find_last_not_of("\n\r") + 1); // Trim newline
+
+        if (!authenticated) {
+            if (command.find("AUTH ") == 0) {
+                authenticated = authenticate(client_sock, command);
+            } else {
+                send_response(client_sock, "ERROR Authentication required");
+            }
+            continue;
+        }
+
+        if (command.find("UPLOAD ") == 0) {
+            std::string filename = command.substr(7);
+            handle_upload(client_sock, filename);
+        } else if (command.find("DOWNLOAD ") == 0) {
+            std::string filename = command.substr(9);
+            handle_download(client_sock, filename);
+        } else if (command == "LIST") {
+            handle_list(client_sock);
+        } else {
+            send_response(client_sock, "ERROR Unknown command");
+        }
+    }
+#ifdef _WIN32
+    closesocket(client_sock);
+#else
+    close(client_sock);
+#endif
+}
+
+int main() {
+#ifdef _WIN32
+    WSADATA wsaData;
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+        std::cerr << "WSAStartup failed\n";
+        return 1;
+    }
+#endif
+
+    // Create server_files directory
+    std::filesystem::create_directory(FILE_DIR);
+
+    // Create socket
+    int server_sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_sock < 0) {
+        std::cerr << "Socket creation failed\n";
+        return 1;
+    }
+
+    // Bind socket
+    sockaddr_in server_addr;
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+    server_addr.sin_port = htons(8888);
+    if (bind(server_sock, (sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+        std::cerr << "Bind failed\n";
+        return 1;
+    }
+
+    // Listen
+    if (listen(server_sock, 5) < 0) {
+        std::cerr << "Listen failed\n";
+        return 1;
+    }
+    std::cout << "Server listening on port 8888...\n";
+
+    // Accept clients
+    std::vector<std::thread> client_threads;
+    while (true) {
+        sockaddr_in client_addr;
+        socklen_t client_len = sizeof(client_addr);
+        int client_sock = accept(server_sock, (sockaddr*)&client_addr, &client_len);
+        if (client_sock < 0) {
+            std::cerr << "Accept failed\n";
+            continue;
+        }
+        client_threads.emplace_back(handle_client, client_sock);
+    }
+
+#ifdef _WIN32
+    closesocket(server_sock);
+    WSACleanup();
+#else
+    close(server_sock);
+#endif
+    return 0;
+}
