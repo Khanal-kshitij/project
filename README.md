@@ -41,3 +41,52 @@ Implementation Details
     Cross-Platform Notes:
         Uses preprocessor directives (#ifdef _WIN32) for Windows-specific socket initialization (Winsock).
         Directory listing uses dirent.h (Linux) or Windows API.
+
+How to Run
+
+    Prerequisites:
+        C++ compiler (g++, MSVC, etc.) with C++17 support.
+        Windows: Link against Ws2_32.lib (included in the server code via #pragma).
+        Linux: No additional libraries needed.
+    Setup:
+        Create a directory named server_files in the same directory as server.cpp to store uploaded files.
+        Compile the server and client code:
+        bash
+
+    g++ server.cpp -o server -std=c++17
+    g++ client.cpp -o client -std=c++17
+    On Windows, use a suitable compiler (e.g., MSVC) and ensure Winsock is linked.
+
+Run the Server:
+
+    Start the server first:
+    bash
+
+    ./server
+    It will listen on port 8888 and print "Server listening on port 8888...".
+
+Run the Client:
+
+    In another terminal, run the client:
+    bash
+
+    ./client
+    The client connects to 127.0.0.1:8888 and authenticates with user/pass.
+
+Interact with the Client:
+
+    Enter commands like:
+        UPLOAD test.txt: Uploads test.txt from the client’s directory to the server.
+        DOWNLOAD test.txt: Downloads test.txt from the server to the client’s directory.
+        LIST: Lists all files in the server’s server_files directory.
+        EXIT: Closes the client.
+    Example session:
+    text
+
+OK Authenticated
+Enter command (UPLOAD <filename>, DOWNLOAD <filename>, LIST, EXIT): LIST
+OK Files:
+test.txt
+Enter command: UPLOAD image.png
+OK File uploaded successfully
+Enter command: EXIT
