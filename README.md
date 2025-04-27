@@ -80,19 +80,4 @@ Interact with the Client:
         DOWNLOAD test.txt: Downloads test.txt from the server to the client’s directory.
         LIST: Lists all files in the server’s server_files directory.
         EXIT: Closes the client.
-    Example session:
-    text
 
-OK Authenticated
-
-Enter command (UPLOAD <filename>, DOWNLOAD <filename>, LIST, EXIT): LIST
-
-OK Files:
-
-test.txt
-
-Enter command: UPLOAD image.png
-
-OK File uploaded successfully
-
-Enter command: EXIT
