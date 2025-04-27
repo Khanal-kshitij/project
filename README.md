@@ -1,5 +1,5 @@
-# project
-File Transfer Protocol (FTP) Client and Server Networking 
+# File Transfer Protocol (FTP) Client and Server Networking Project
+ 
 Project Overview
 
     Objective: Create a client-server application where the client can upload files to the server, download files from the server, and list available files in the server’s directory.
