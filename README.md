@@ -84,9 +84,15 @@ Interact with the Client:
     text
 
 OK Authenticated
+
 Enter command (UPLOAD <filename>, DOWNLOAD <filename>, LIST, EXIT): LIST
+
 OK Files:
+
 test.txt
+
 Enter command: UPLOAD image.png
+
 OK File uploaded successfully
+
 Enter command: EXIT
